@@ -475,12 +475,17 @@
   const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.12});
   document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
 
-  // ---- Intake modal ----
-  // TO ENABLE REAL AUTOMATED SENDING: set FORM_ENDPOINT to your form service URL
-  // (e.g. Formspree "https://formspree.io/f/xxxx" or Getform). Leave "" to use the
-  // email-handoff fallback below (opens the visitor's mail app, pre-addressed to you).
-  const FORM_ENDPOINT = "";
+  // ---- Intake modal + Web3Forms wiring ----
+  // 1) Get a FREE access key: enter your email at https://web3forms.com (~30s; the
+  //    key arrives by email). Paste it below — it's safe to be public.
+  // 2) Leads then land in your inbox automatically.
+  // 3) To ALSO auto-email the prospect asking for socials/photos, turn on the
+  //    Autoresponder in the Web3Forms dashboard (Pro feature). The form already
+  //    sends a lowercase "email" field, which the autoresponder replies to.
+  // Until a real key is pasted, the form falls back to opening the visitor's mail app.
+  const WEB3FORMS_KEY = "PASTE-YOUR-ACCESS-KEY-HERE";
   const SALES_EMAIL = "sales@frontagehq.studio";
+  const KEY_READY = WEB3FORMS_KEY && !WEB3FORMS_KEY.startsWith("PASTE-");
 
   const scrim=document.getElementById('scrim');
   const formView=document.getElementById('formView');
@@ -494,28 +499,9 @@
   document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
   function val(id){return (document.getElementById(id).value||'').trim();}
-  document.getElementById('fSubmit').addEventListener('click',async ()=>{
-    const email=val('fEmail'); const emEl=document.getElementById('fEmail');
-    if(!email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){emEl.classList.add('err');emEl.focus();return;}
-    emEl.classList.remove('err');
-    const data={
-      business:val('fBiz'), name:val('fName'), email:email,
-      phone:val('fPhone'), trade:val('fTrade'), source:'frontagehq.studio'
-    };
 
-    if(FORM_ENDPOINT){
-      // Real automated path: posts to your form service, which emails you.
-      try{
-        await fetch(FORM_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(data)});
-      }catch(err){/* fall through to confirmation regardless */}
-      formView.style.display='none';doneView.style.display='';
-      doneView.querySelector('h3').textContent="You're in — we'll be in touch.";
-      doneView.querySelector('.msub').textContent="Thanks! We'll email you shortly asking for your socials, photos, and anything you'd like featured, then start building your preview.";
-      return;
-    }
-
-    // Fallback (no backend): open a pre-filled email so the lead reaches you.
-    const subject=encodeURIComponent('Free preview request — '+(data.business||data.name||email));
+  function mailtoFallback(data){
+    const subject=encodeURIComponent('Free preview request — '+(data.business||data.name||data.email));
     const body=encodeURIComponent(
       "Hi Frontage,\n\nI'd like a free preview of my website.\n\n"+
       "Business: "+(data.business||'—')+"\n"+
@@ -527,5 +513,50 @@
     );
     window.location.href='mailto:'+SALES_EMAIL+'?subject='+subject+'&body='+body;
     formView.style.display='none';doneView.style.display='';
+    doneView.querySelector('h3').textContent="Almost there — check your email.";
+    doneView.querySelector('.msub').textContent="We've opened a pre-filled message so your request reaches us. Once we get it, we'll reply asking for your socials, photos, and anything you'd like featured.";
+  }
+
+  document.getElementById('fSubmit').addEventListener('click',async ()=>{
+    const email=val('fEmail'); const emEl=document.getElementById('fEmail');
+    if(!email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){emEl.classList.add('err');emEl.focus();return;}
+    emEl.classList.remove('err');
+    const btn=document.getElementById('fSubmit'); const label=btn.textContent;
+    const data={
+      business:val('fBiz'), name:val('fName'), email:email,
+      phone:val('fPhone'), trade:val('fTrade')
+    };
+
+    // No key configured yet → email handoff so no lead is lost.
+    if(!KEY_READY){ return mailtoFallback(data); }
+
+    btn.disabled=true; btn.textContent="Sending…";
+    const payload={
+      access_key: WEB3FORMS_KEY,
+      subject: "New free-preview request — "+(data.business||data.name||email),
+      from_name: "Frontage — Website",
+      Business: data.business||"—",
+      Name: data.name||"—",
+      email: data.email,                 // lowercase so the autoresponder can reply here
+      Phone: data.phone||"—",
+      "What they do": data.trade||"—",
+      Source: "frontagehq.studio"
+    };
+    try{
+      const res=await fetch("https://api.web3forms.com/submit",{
+        method:"POST",
+        headers:{"Content-Type":"application/json","Accept":"application/json"},
+        body:JSON.stringify(payload)
+      });
+      const out=await res.json().catch(()=>({success:res.ok}));
+      if(!out.success) throw new Error("web3forms");
+    }catch(err){
+      btn.disabled=false; btn.textContent=label;
+      return mailtoFallback(data);       // network/API hiccup → don't lose the lead
+    }
+    btn.disabled=false; btn.textContent=label;
+    formView.style.display='none';doneView.style.display='';
+    doneView.querySelector('h3').textContent="Almost there — check your email.";
+    doneView.querySelector('.msub').textContent="Thanks — we just got your request. Watch your inbox: we'll be in touch shortly asking for your socials, photos, and anything you'd like featured, then start building your preview.";
   });
 </script>
